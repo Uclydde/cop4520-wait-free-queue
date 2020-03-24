@@ -40,9 +40,8 @@ class Queue
     // if queue is not empty
     else
     {
-      Node* newTail = new Node(newNode->val);
-      tail->next = newTail;
-      tail = newTail;
+      tail->next = newNode;
+      tail = tail->next;
       return;
     }
   }
@@ -85,6 +84,14 @@ int main(void)
 {
   Node* temp;
   Queue* queue = new Queue();
+
+  queue->push(new Node(1));
+  queue->push(new Node(2));
+  queue->push(new Node(3));
+
+  queue->push(new Node(1));
+  queue->push(new Node(2));
+  queue->push(new Node(3));
 
   queue->push(new Node(1));
   queue->push(new Node(2));

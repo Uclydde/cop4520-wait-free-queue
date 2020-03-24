@@ -1,5 +1,5 @@
 // to compile:
-// g++ -std=c++11 -pthread mrlock-queue.cpp
+// g++ -I mrlock/src/ mrlock-queue.cpp mrlock/src/strategy/*.o --std=c++11 -pthread
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,8 +13,8 @@
 #include <strategy/lockablebase.h>
 #include <strategy/mrlockable.h>
 
-#define NUM_THREADS 4
-#define NUM_OPS 10
+#define NUM_THREADS 1
+#define NUM_OPS 100
 
 class Node
 {
@@ -39,14 +39,18 @@ class Queue
 
 
   // adds an element to the queue. (inserts at tail)
-  void push(Node* newNode)
+  void enqueue(Node* newNode)
   {
-    if (newNode == NULL)
-      return;
-
     lock->Lock();
 
-    printf("Pushed %d\n", newNode->val);
+    if (newNode == NULL)
+    {
+      printf("Out of pre-allocated nodes. \n");
+      lock->Unlock();
+      return;
+    }
+
+    printf("Enqueued %d\n", newNode->val);
 
     // if queue is empty
     if (tail == NULL)
@@ -68,7 +72,7 @@ class Queue
   }
 
   // returns the head of the queue
-  Node* pop(void)
+  Node* dequeue(void)
   {
     Node* temp;
     Node* newHead;
@@ -77,11 +81,12 @@ class Queue
 
     if (head == NULL)
     {
+      printf("The queue is empty. No node was dequeued.\n");
       lock->Unlock();
       return NULL;
     }
 
-    printf("Popped %d\n", head->val);
+    printf("Dequeued %d\n", head->val);
 
     // queue will now be empty
     if (head == tail)
@@ -110,31 +115,113 @@ class Queue
   }
 };
 
+
+// each thread gets its own SimpleQueue, which contains pre-allocated nodes
+class SimpleQueue
+{
+  public:
+  Node* head;
+  Node* tail;
+
+  // adds an element to the queue. (inserts at tail)
+  void push(Node* newNode)
+  {
+    if (newNode == NULL)
+      return;
+
+    // if queue is empty
+    if (tail == NULL)
+    {
+      tail = newNode;
+      head = tail;
+      return;
+    }
+    // if queue is not empty
+    else
+    {
+      tail->next = newNode;
+      tail = tail->next;
+      return;
+    }
+  }
+
+  // returns the head of the queue
+  Node* pop(void)
+  {
+    Node* temp;
+    Node* newHead;
+
+    if (head == NULL)
+    {
+      return NULL;
+    }
+
+    // queue will now be empty
+    if (head == tail)
+    {
+      temp = head;
+      head = NULL;
+      tail = NULL;
+      return temp;
+    }
+    else
+    {
+      newHead = head->next;
+      temp = head;
+      head = newHead;
+      return temp;
+    }
+  }
+  SimpleQueue()
+  {
+    head = tail;
+  }
+};
+
 Queue* mrlockQueue = new Queue();
 
-void executeRandomOps()
+
+void executeRandomOps(SimpleQueue* preallocated)
 {
   for (int i = 0; i < NUM_OPS; i++)
   {
     if (rand() % 2)
     {
-      mrlockQueue->push(new Node(0));
+      // enqueues a node from the thread's pre-allocated nodes
+      mrlockQueue->enqueue(preallocated->pop());
     }
     else
     {
-      mrlockQueue->pop();
+      // dequeues a node back onto the thread's pre-allocated nodes
+      preallocated->push(mrlockQueue->dequeue());
     }
+  }
+}
+
+void preallocateNodes(SimpleQueue* preallocated)
+{
+  for (int i = 0; i < NUM_OPS; i++)
+  {
+    preallocated->push(new Node(rand() % 100));
   }
 }
 
 int main(void)
 {
-  srand(time(0));
   std::thread threads[NUM_THREADS];
+  SimpleQueue* preallocated[NUM_THREADS];
+  srand(time(0));
+
+  // preallocate each thread's nodes
+  for (int i = 0; i < NUM_THREADS; i++)
+  {
+    preallocated[i] = new SimpleQueue();
+    preallocateNodes(preallocated[i]);
+  }
 
   // start the threads
   for (int i = 0; i < NUM_THREADS; i++)
-    threads[i] = std::thread(executeRandomOps);
+    threads[i] = std::thread(executeRandomOps, preallocated[i]);
 
   // ensure that all threads have finished before continuing
   for (int i = 0; i < NUM_THREADS; i++)
